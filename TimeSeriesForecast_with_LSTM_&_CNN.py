@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+
+
 import tensorflow as tf
 import pandas as pd
 import numpy as np
@@ -51,24 +54,29 @@ batch_size = 32
 shuffle_buffer_size = 1000
 
 def windowed_dataset(series,batch_size,shuffle_buffer_size,window_size):
+    series=tf.expand_dims(series,axis=-1)
     df=tf.data.Dataset.from_tensor_slices(series)
     df=df.window(window_size+1,shift=1,drop_remainder=True)
     df=df.flat_map(lambda window:window.batch(window_size+1))
     df=df.shuffle(shuffle_buffer_size).map(lambda window:(window[:-1],window[-1]))
     df=df.batch(batch_size).prefetch(1)
+    for x,y in df:
+        print('x=',x.numpy().shape)
+        print('y=',y.numpy().shape)
     return df
 
 
 train_set=windowed_dataset(series,32,1000,20)
 model=tf.keras.Sequential()
-model.add(tf.keras.layers.Lambda(lambda x:tf.expand_dims(x,axis=-1)))
-model.add(tf.keras.layers.SimpleRNN(40,return_sequences=True))
-model.add(tf.keras.layers.SimpleRNN(40))
+model.add(tf.keras.layers.Conv1D(filters=50,kernel_size=4,activation='relu',padding="causal",strides=1,input_shape=[None,1]))
+model.add(tf.keras.layers.Conv1D(filters=50,kernel_size=4,activation='relu',padding="causal",strides=1))
+model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50,return_sequences=True)))
+model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50)))
 model.add(tf.keras.layers.Dense(1))
 model.add(tf.keras.layers.Lambda(lambda x:x*100))
 model.summary()
 lr_schedule=tf.keras.callbacks.LearningRateScheduler(lambda epoch:1e-8*10**(epoch/20))
-optimizer=tf.keras.optimizers.SGD(lr=2e-6,momentum=0.9)
+optimizer=tf.keras.optimizers.SGD(lr=9e-6,momentum=0.7)
 model.compile(loss=tf.keras.losses.Huber(),optimizer=optimizer,metrics=["mae"])
 
 history=model.fit(train_set,epochs=50)
@@ -77,12 +85,14 @@ plt.semilogx(history.history['lr'],history.history['loss'])
 
 forecast=[]
 for time in range(len(series)-window_size):
-    forecast.append(model.predict(series[time:time+window_size][np.newaxis]))
-
+    serie1=series[time:time+window_size][np.newaxis]
+    serie1=tf.expand_dims(serie1,axis=-1)
+    forecast.append(model.predict(serie1))
+    
 forecast=forecast[split_time-window_size:]
 
 results=np.array(forecast)[:,0,0]
-
+    
 plot_series(time_valid, x_valid)
 plot_series(time_valid, results)
 
